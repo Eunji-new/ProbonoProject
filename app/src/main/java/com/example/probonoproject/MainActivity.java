@@ -16,6 +16,8 @@ import android.widget.CompoundButton.OnCheckedChangeListener;
 import android.widget.Switch;
 import android.widget.TextView;
 
+import com.pedro.library.AutoPermissions;
+
 import org.altbeacon.beacon.Beacon;
 import org.altbeacon.beacon.BeaconConsumer;
 import org.altbeacon.beacon.BeaconManager;
@@ -35,8 +37,12 @@ public class MainActivity extends AppCompatActivity implements BeaconConsumer {
     //비콘매니저 객체 초기화
     private BeaconManager beaconManager;
     private List<Beacon> beaconList = new ArrayList<>();
+    String beaconUUID = "74278BDA-B644-4520-8F0C-720EAF059935";
+
     public static final String TAG = "BeaconTest";
+
     TextView distance;
+
     //블루투스 Activity에는 BluetoothAdapter가 필요함
     //BluetoothAdapter 가져오려면 getDefaultAdapter() 호출
     BluetoothAdapter bluetoothAdapter = BluetoothAdapter.getDefaultAdapter();
@@ -44,13 +50,13 @@ public class MainActivity extends AppCompatActivity implements BeaconConsumer {
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
-
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
 
+        AutoPermissions.Companion.loadAllPermissions(this, 101);
+
         //객체 초기화
         beaconManager = BeaconManager.getInstanceForApplication(this);
-        beaconManager.bind(this);
 
         // 기기에 따라 setBeaconLayout 안의 내용을 바꿔줘야 함
         // 그냥 전부 add
@@ -69,7 +75,9 @@ public class MainActivity extends AppCompatActivity implements BeaconConsumer {
         beaconManager.getBeaconParsers().add(new BeaconParser().setBeaconLayout("m:2-3=beac,i:4-19,i:20-21,i:22-23,p:24-24,d:25-25"));
         beaconManager.getBeaconParsers().add(new BeaconParser().setBeaconLayout("m:0-3=4c000215,i:4-19,i:20-21,i:22-23,p:24-24"));
 
+        beaconManager.bind(this);
 
+        /* 11/2 수정
         beaconManager.setMonitorNotifier(new MonitorNotifier() {
             //didEnterRegion을 통해 비콘검색
             @Override
@@ -90,12 +98,14 @@ public class MainActivity extends AppCompatActivity implements BeaconConsumer {
             }
         });
 
-       // Button inform = (Button)findViewById(R.id.inform);
+        */
+
+        // Button inform = (Button)findViewById(R.id.inform);
         Switch btSwitch = (Switch)findViewById(R.id.bluetoothSwitch);
         Button btConnect = (Button)findViewById(R.id.connect);
         distance = (TextView)findViewById(R.id.distance);
 
-/* inform.setOnClickListener(new View.OnClickListener() {
+        /* inform.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
                 Intent intent = new Intent(getApplicationContext(), SeatInformation.class);
@@ -122,14 +132,15 @@ public class MainActivity extends AppCompatActivity implements BeaconConsumer {
                 }
             }
         });
-
     }
 
 
     // 비콘 감지시 호출되는 함수
     @Override
     public void onBeaconServiceConnect() {
+        beaconManager.removeAllMonitorNotifiers();
 
+        //setRangeNotifier 대신
         beaconManager.addRangeNotifier(new RangeNotifier() {
             @Override
             // 비콘이 감지되면 해당 함수가 호출된다. Collection<Beacon> beacons에는 감지된 비콘의 리스트가,
@@ -140,61 +151,92 @@ public class MainActivity extends AppCompatActivity implements BeaconConsumer {
                     for (Beacon beacon : beacons) {
                         beaconList.add(beacon);
                     }
+                    Log.i(TAG, String.valueOf(((Beacon)beacons.iterator().next()).getDistance()));
                 }
             }
         });
+        beaconManager.addMonitorNotifier(new MonitorNotifier() {
+            @Override
+            public void didEnterRegion(Region region) {
+                Log.i(TAG, "비콘발견");
+                distance.setText("비콘 연결됨");
+            }
+
+            @Override
+            public void didExitRegion(Region region) {
+                Log.i(TAG, "비콘연결끊김");
+                distance.setText("비콘연결끊김");
+            }
+
+            @Override
+            public void didDetermineStateForRegion(int state, Region region) {
+                Log.i(TAG, "현재 연결 상태" + state);
+            }
+        });
+
+        try {
+            beaconManager.startMonitoringBeaconsInRegion(new Region("beacon", Identifier.parse(beaconUUID), null, null));
+        } catch (RemoteException e) {    }
+        try
+        {
+            beaconManager.startRangingBeaconsInRegion(new Region("beacon", Identifier.parse(beaconUUID), null, null));
+        }
+        catch (RemoteException e)
+        {
+        }
     }
+
+
     // 연결버튼 클릭하면 handleMessage를 부르는 함수. 맨 처음에는 0초간격이지만 한번 호출되고 나면
     // 1초마다 불러온다.
     public void OnButtonClicked(View view){
-            // 아래에 있는 handleMessage를 부르는 함수. 맨 처음에는 0초간격이지만 한번 호출되고 나면
-            // 1초마다 불러온다.
-            handler.sendEmptyMessage(0);
-            distance.setText("비콘리스트 크기 : " + beaconList.size());
-        }
-        Handler handler = new Handler() {
-            public void handleMessage(Message msg) {
-                if(beaconList.size()>0) {
-                    double minDistance = 1000;
+        // 아래에 있는 handleMessage를 부르는 함수. 맨 처음에는 0초간격이지만 한번 호출되고 나면
+        // 1초마다 불러온다.
+        handler.sendEmptyMessage(0);
+        distance.setText("비콘리스트 크기 : " + beaconList.size());
+    }
+    Handler handler = new Handler() {
+        public void handleMessage(Message msg) {
+            if(beaconList.size()>0) {
+                double minDistance = 1000;
 
-                    Beacon minBeacon = beaconList.get(0);
-                    int major = minBeacon.getId2().toInt(); //beacon major
-                    int minor = minBeacon.getId3().toInt();// beacon minor
+                Beacon minBeacon = beaconList.get(0);
+                int major = minBeacon.getId2().toInt(); //beacon major
+                int minor = minBeacon.getId3().toInt();// beacon minor
 
-                    // 비콘의 아이디와 거리를 측정하여 textView에 넣는다.
-                    for (Beacon beacon : beaconList) {
-                        //최소 거리 비콘 구하기
-                        if (beacon.getDistance() < minDistance) {
-                            minBeacon = beacon;
-                            try {
-                                //모든 비콘 감지 (UUID, Major, Minor 전부 null이면 모든 비콘)
-                                beaconManager.startMonitoringBeaconsInRegion(new Region("myRegion", null, null, null));
-                            } catch (RemoteException e) {
-                                e.printStackTrace();
-                            }
-                        }
-                        String uuid = minBeacon.getId1().toString(); //beacon uuid
-                        String address = minBeacon.getBluetoothAddress();
-                        distance.append("ID 1 : " + minBeacon.getId2() + " / " + "Distance : " + Double.parseDouble(String.format("%.2f", minBeacon.getDistance())) + "m\n");
-                        distance.append("Beacon Bluetooth Id : " + address + "\n");
-                        distance.append("Beacon UUID : " + uuid + "\n");
-
-                        if (major == 40001) {
-                            //beacon 의 식별을 위하여 major값으로 확인
-                            //이곳에 필요한 기능 구현
-                            //textView.append("ID 1 : " + beacon.getId2() + " / " + "Distance : " + Double.parseDouble(String.format("%.3f", beacon.getDistance())) + "m\n");
-                            //  textView.append("Beacon Bluetooth Id : "+address+"\n");
-                            // textView.append("Beacon UUID : "+uuid+"\n");
-
-                        } else {
-                            //나머지 비콘검색
-                            //textView.append("ID 2: " + beacon.getId2() + " / " + "Distance : " + Double.parseDouble(String.format("%.3f", beacon.getDistance())) + "m\n");
+                // 비콘의 아이디와 거리를 측정하여 textView에 넣는다.
+                for (Beacon beacon : beaconList) {
+                    //최소 거리 비콘 구하기
+                    if (beacon.getDistance() < minDistance) {
+                        minBeacon = beacon;
+                        try {
+                            //모든 비콘 감지 (UUID, Major, Minor 전부 null이면 모든 비콘)
+                            beaconManager.startMonitoringBeaconsInRegion(new Region("myRegion", null, null, null));
+                        } catch (RemoteException e) {
+                            e.printStackTrace();
                         }
                     }
-                    // 자기 자신을 1초마다 호출
-                    handler.sendEmptyMessageDelayed(0, 1000);
-                }
-            }
-        };
+                    String uuid = minBeacon.getId1().toString(); //beacon uuid
+                    String address = minBeacon.getBluetoothAddress();
+                    distance.append("ID 1 : " + minBeacon.getId2() + " / " + "Distance : " + Double.parseDouble(String.format("%.2f", minBeacon.getDistance())) + "m\n");
+                    distance.append("Beacon Bluetooth Id : " + address + "\n");
+                    distance.append("Beacon UUID : " + uuid + "\n");
 
+                    if (major == 40001) {
+                        //beacon 의 식별을 위하여 major값으로 확인
+                        //이곳에 필요한 기능 구현
+                        //textView.append("ID 1 : " + beacon.getId2() + " / " + "Distance : " + Double.parseDouble(String.format("%.3f", beacon.getDistance())) + "m\n");
+                        //  textView.append("Beacon Bluetooth Id : "+address+"\n");
+                        // textView.append("Beacon UUID : "+uuid+"\n");
+
+                    } else {
+                        //나머지 비콘검색
+                        //textView.append("ID 2: " + beacon.getId2() + " / " + "Distance : " + Double.parseDouble(String.format("%.3f", beacon.getDistance())) + "m\n");
+                    }
+                }
+                // 자기 자신을 1초마다 호출
+                handler.sendEmptyMessageDelayed(0, 1000);
+            }
+        }
+    };
 }
